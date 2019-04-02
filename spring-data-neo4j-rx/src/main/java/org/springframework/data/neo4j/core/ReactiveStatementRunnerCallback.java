@@ -18,27 +18,30 @@
  */
 package org.springframework.data.neo4j.core;
 
+import java.util.Optional;
+
 import org.apiguardian.api.API;
-import org.neo4j.driver.Record;
+import org.neo4j.driver.reactive.RxStatementRunner;
 
 /**
- * This interface can be passed to the {@link Neo4jTemplate} to process records of a {@link org.neo4j.driver.StatementResult}
- * or {@link org.neo4j.driver.reactive.RxResult} in a stateful manner. Therefore instances of this interface should not be
- * reused (being passed multiple times to a {@link Neo4jTemplate}.
+ * A callback that retrieves a {@link RxStatementRunner} to execute arbitrary database calls. The statement runner
+ * will participate in ongoing transactions when used in a setup with using the
+ * {@link org.springframework.data.neo4j.core.transaction.Neo4jTransactionManager}.
  *
+ * @param <T> The result type
  * @author Michael J. Simons
  * @since 1.0
- * @soundtrack Die Toten Hosen - Bis zum bitteren Ende
+ * @soundtrack Die Toten Hosen - Im Auftrag des Herrn
  */
 @API(status = API.Status.STABLE, since = "1.0")
 @FunctionalInterface
-public interface RecordCallbackHandler {
+public interface ReactiveStatementRunnerCallback<T> {
 
 	/**
-	 * Called by the {@link Neo4jTemplate} with each record inside the result set in the order of which records have been
-	 * returned by the underlying query.
+	 * Gets called by the template and clients of this API can use the supplied runner for as many statements as needed.
 	 *
-	 * @param record The record to be processed.
+	 * @param statementRunner A statement runner participating in ongoing transactions
+	 * @return A possible result (may be empty, but not null)
 	 */
-	void processRecord(Record record);
+	Optional<T> doWithRunner(RxStatementRunner statementRunner);
 }

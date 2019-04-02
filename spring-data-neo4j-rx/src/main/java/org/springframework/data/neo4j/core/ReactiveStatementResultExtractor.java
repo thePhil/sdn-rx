@@ -18,6 +18,8 @@
  */
 package org.springframework.data.neo4j.core;
 
+import java.util.Optional;
+
 import org.apiguardian.api.API;
 import org.neo4j.driver.reactive.RxResult;
 
@@ -30,12 +32,10 @@ import org.neo4j.driver.reactive.RxResult;
  * should be simpler.
  * <p>
  * Instances of this interface should usually be stateless and thus reusable.
- * <p>
- * {@link #extractData(RxResult)} is expected to return a non-null result as a {@literal null} indicates a stateful
- * extraction. Please use {@link RecordCallbackHandler} instead.
  *
  * @param <T> The result type
  * @author Michael J. Simons
+ * @since 1.0
  * @soundtrack Die Toten Hosen - Bis zum bitteren Ende
  */
 @API(status = API.Status.STABLE, since = "1.0")
@@ -46,7 +46,7 @@ public interface ReactiveStatementResultExtractor<T> {
 	 * Implementations must implement this method to map a complete statement result into an object.
 	 *
 	 * @param statementResult The complete statement from which to extract the result
-	 * @return The result of the extraction.
+	 * @return The result of the extraction (may be empty, but not null)
 	 */
-	T extractData(RxResult statementResult);
+	Optional<T> extractData(RxResult statementResult);
 }

@@ -19,26 +19,14 @@
 package org.springframework.data.neo4j.core;
 
 import org.apiguardian.api.API;
-import org.neo4j.driver.Record;
 
 /**
- * This interface can be passed to the {@link Neo4jTemplate} to process records of a {@link org.neo4j.driver.StatementResult}
- * or {@link org.neo4j.driver.reactive.RxResult} in a stateful manner. Therefore instances of this interface should not be
- * reused (being passed multiple times to a {@link Neo4jTemplate}.
+ * Interface that specifies a basic set of Neo4j operations executed in a reactive way, implemented by {@link ReactiveNeo4jTemplate}.
  *
  * @author Michael J. Simons
  * @since 1.0
- * @soundtrack Die Toten Hosen - Bis zum bitteren Ende
+ * @soundtrack Die Toten Hosen - Im Auftrag des Herrn
  */
 @API(status = API.Status.STABLE, since = "1.0")
-@FunctionalInterface
-public interface RecordCallbackHandler {
-
-	/**
-	 * Called by the {@link Neo4jTemplate} with each record inside the result set in the order of which records have been
-	 * returned by the underlying query.
-	 *
-	 * @param record The record to be processed.
-	 */
-	void processRecord(Record record);
+public interface ReactiveNeo4jOperations {
 }

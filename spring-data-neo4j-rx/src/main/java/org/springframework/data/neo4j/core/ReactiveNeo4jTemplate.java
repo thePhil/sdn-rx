@@ -18,22 +18,13 @@
  */
 package org.springframework.data.neo4j.core;
 
-import org.apiguardian.api.API;
-
 /**
- * Definition of Neo4j specific operations. Implemented by {@link Neo4jTemplate}.
+ * Reactive variant of the {@link Neo4jTemplate}. While the record mapping mechanism works as the blocking approach,
+ * especially all methods taking in a result set need to deal with reactive ("Rx") variant of the result set.
  *
- * TODO Create examples how to use the callbacks etc. with Springs TransactionTemplate to deal with rollbacks etc.
- *
- * @author Gerrit Meier
  * @author Michael J. Simons
  * @since 1.0
+ * @soundtrack Die Toten Hosen - Im Auftrag des Herrn
  */
-@API(status = API.Status.STABLE, since = "1.0")
-public interface Neo4jOperations {
-
-	@API(status = API.Status.EXPERIMENTAL)
-	Object executeQuery(String query);
-
-	<T> T queryForObject(String cypher, RecordMapper<T> recordMapper, NamedParameter<?>... parameters);
+public class ReactiveNeo4jTemplate implements ReactiveNeo4jOperations {
 }

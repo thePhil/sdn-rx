@@ -18,27 +18,44 @@
  */
 package org.springframework.data.neo4j.core;
 
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+
+import java.util.Optional;
+
 import org.apiguardian.api.API;
-import org.neo4j.driver.Record;
 
 /**
- * This interface can be passed to the {@link Neo4jTemplate} to process records of a {@link org.neo4j.driver.StatementResult}
- * or {@link org.neo4j.driver.reactive.RxResult} in a stateful manner. Therefore instances of this interface should not be
- * reused (being passed multiple times to a {@link Neo4jTemplate}.
+ * Representing a named parameter for a Cypher query.
  *
+ * @param <T> Type of the parameters value
  * @author Michael J. Simons
+ * @soundtrack Die Toten Hosen - Im Auftrag des Herrn
  * @since 1.0
- * @soundtrack Die Toten Hosen - Bis zum bitteren Ende
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+@Builder
 @API(status = API.Status.STABLE, since = "1.0")
-@FunctionalInterface
-public interface RecordCallbackHandler {
+public class NamedParameter<T> {
+
+	@NonNull
+	private final String name;
+
+	private final T value;
 
 	/**
-	 * Called by the {@link Neo4jTemplate} with each record inside the result set in the order of which records have been
-	 * returned by the underlying query.
-	 *
-	 * @param record The record to be processed.
+	 * @return Name of this parameter
 	 */
-	void processRecord(Record record);
+	public String getName() {
+		return name;
+	}
+
+	/**
+	 * @return Value of this parameter, may be empty but never null
+	 */
+	public Optional<T> getValue() {
+		return Optional.ofNullable(value);
+	}
 }

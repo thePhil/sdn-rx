@@ -18,9 +18,10 @@
  */
 package org.springframework.data.neo4j.core;
 
+import java.util.Optional;
+
 import org.apiguardian.api.API;
 import org.neo4j.driver.Record;
-import org.springframework.lang.Nullable;
 
 /**
  * An interface used by {@link Neo4jTemplate} for mapping records of a {@link org.neo4j.driver.StatementResult} or {@link org.neo4j.driver.reactive.RxResult}.
@@ -32,6 +33,7 @@ import org.springframework.lang.Nullable;
  *
  * @param <T> The result type
  * @author Michael J. Simons
+ * @since 1.0
  * @soundtrack Die Toten Hosen - Bis zum bitteren Ende
  */
 @API(status = API.Status.STABLE, since = "1.0")
@@ -43,7 +45,7 @@ public interface RecordMapper<T> {
 	 *
 	 * @param record       The record to be mapped
 	 * @param recordNumber The number of the current record
-	 * @return The result object for the current record (may be null)
+	 * @return The result object for the current record (may be empty, but not null)
 	 */
-	@Nullable T mapRecord(Record record, int recordNumber);
+	Optional<T> mapRecord(Record record, int recordNumber);
 }

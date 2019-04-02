@@ -30,6 +30,8 @@ import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.StatementResult;
 import org.neo4j.driver.StatementRunner;
+import org.neo4j.driver.exceptions.NoSuchRecordException;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.neo4j.core.transaction.ManagedTransactionProvider;
 import org.springframework.data.neo4j.core.transaction.NativeTransactionProvider;
 
@@ -76,6 +78,22 @@ public class Neo4jTemplate implements Neo4jOperations {
 			StatementResult result = statementRunner.run(query);
 
 			return result.list();
+		}
+	}
+
+	@Override
+	public <T> T queryForObject(String cypher, RecordMapper<T> recordMapper, NamedParameter<?>... parameters) {
+
+		try (AutoCloseableStatementRunner statementRunner = getStatementRunner()) {
+			StatementResult result = statementRunner.run(cypher, NamedParameters.asParameterMap(parameters));
+
+			try {
+				return recordMapper.mapRecord(result.single(), 0)
+					.orElseThrow(() -> new NoSuchRecordException("Mapper didn't return any result"));
+			} catch (NoSuchRecordException e) {
+				throw new EmptyResultDataAccessException(e.getMessage(), 1, e);
+
+			}
 		}
 	}
 

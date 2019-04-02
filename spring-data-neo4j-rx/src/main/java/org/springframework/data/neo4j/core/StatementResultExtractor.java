@@ -35,6 +35,7 @@ import org.neo4j.driver.StatementResult;
  *
  * @param <T> The result type
  * @author Michael J. Simons
+ * @since 1.0
  * @soundtrack Die Toten Hosen - Bis zum bitteren Ende
  */
 @API(status = API.Status.STABLE, since = "1.0")
