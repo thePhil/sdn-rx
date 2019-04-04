@@ -47,7 +47,6 @@ public class ManagedTransactionProvider implements NativeTransactionProvider {
 			return Optional.empty();
 		}
 
-		// TODO Check existing transaction wether
 		// Try existing transaction
 		Neo4jConnectionHolder connectionHolder = (Neo4jConnectionHolder) TransactionSynchronizationManager
 			.getResource(driver);
