@@ -28,7 +28,6 @@ import org.apiguardian.api.API;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.summary.ResultSummary;
-import org.springframework.data.neo4j.core.transaction.ManagedTransactionProvider;
 
 /**
  * Definition of a modern Neo4j client.
@@ -45,7 +44,7 @@ public interface Neo4jClient {
 
 	static Neo4jClient create(Driver driver) {
 
-		return new DefaultNeo4jClient(driver, new ManagedTransactionProvider());
+		return new DefaultNeo4jClient(driver);
 	}
 
 	/**
@@ -68,9 +67,31 @@ public interface Neo4jClient {
 	RunnableSpec newQuery(Supplier<String> cypherSupplier);
 
 	/**
+	 * Begins a new delegation in the given target database.
+	 *
+	 * @param targetDatabase
+	 * @return An ongoing delegation
+	 */
+	OngoingDelegation with(String targetDatabase);
+
+	/**
 	 * Contract for a runnable query that can be either run returning it's result, run without results or be parameterized.
 	 */
-	interface RunnableSpec extends BindSpec<RunnableSpec> {
+	interface RunnableSpec extends RunnableSpecTightToDatabase {
+
+		/**
+		 * Pins the previously defined query to a specific database.
+		 *
+		 * @param targetDatabase
+		 * @return
+		 */
+		RunnableSpecTightToDatabase in(String targetDatabase);
+	}
+
+	/**
+	 * Contract for a runnable query inside a dedicated database.
+	 */
+	interface RunnableSpecTightToDatabase extends BindSpec<RunnableSpecTightToDatabase> {
 
 		/**
 		 * Create a mapping for each record return to a specific type.
@@ -79,14 +100,14 @@ public interface Neo4jClient {
 		 * @param <R>         The type of the class
 		 * @return A mapping spec that allows specifying a mapping function
 		 */
-		<R> MappingSpec<R> fetchAs(Class<R> targetClass);
+		<R> MappingSpec<Optional<R>, Collection<R>, R> fetchAs(Class<R> targetClass);
 
 		/**
 		 * Fetch all records mapped into generic maps
 		 *
 		 * @return A fetch specification that maps into generic maps
 		 */
-		RecordFetchSpec<Map<String, Object>> fetch();
+		RecordFetchSpec<Optional<Map<String, Object>>, Collection<Map<String, Object>>, Map<String, Object>> fetch();
 
 		/**
 		 * Execute the query and discard the results
@@ -99,7 +120,7 @@ public interface Neo4jClient {
 	/**
 	 * Contract for binding parameters to a query.
 	 *
-	 * @param <S> This {{@link BindSpec specs}} own type
+	 * @param <S> This {@link BindSpec specs} own type
 	 */
 	interface BindSpec<S extends BindSpec<S>> {
 
@@ -115,7 +136,7 @@ public interface Neo4jClient {
 	/**
 	 * Ongoing bind specification.
 	 *
-	 * @param <S> This {{@link OngoingBindSpec specs}} own type
+	 * @param <S> This {@link OngoingBindSpec specs} own type
 	 */
 	interface OngoingBindSpec<T, S extends BindSpec<S>> {
 
@@ -136,17 +157,43 @@ public interface Neo4jClient {
 		S with(Function<T, Map<String, Object>> binder);
 	}
 
-	interface MappingSpec<R> extends RecordFetchSpec<R> {
+	/**
+	 * @param <S> The type of the class holding zero or one result element
+	 * @param <M> The type of the class holding zero or more result elements
+	 * @param <R> The resulting type of this mapping
+	 */
+	interface MappingSpec<S, M, R> extends RecordFetchSpec<S, M, R> {
 
-		RecordFetchSpec<R> mappedBy(Function<Record, R> mappingFunction);
+		RecordFetchSpec<S, M, R> mappedBy(Function<Record, R> mappingFunction);
 	}
 
-	interface RecordFetchSpec<T> {
+	/**
+	 * @param <S> The type of the class holding zero or one result element
+	 * @param <M> The type of the class holding zero or more result elements
+	 * @param <R> The type to which the fetched records are eventually mapped
+	 */
+	interface RecordFetchSpec<S, M, R> {
 
-		Optional<T> one();
+		S one();
 
-		Optional<T> first();
+		S first();
 
-		Collection<T> all();
+		M all();
+	}
+
+	/**
+	 * A contract for an ongoing delegation in the selected database.
+	 *
+	 * @param <T> The type of the returned value.
+	 */
+	interface OngoingDelegation<T> {
+
+		/**
+		 * Delegates all things querying, parameter binding etc. to the {@link StatementRunnerCallback callback}.
+		 *
+		 * @param callback
+		 * @return
+		 */
+		Optional<T> delegateTo(StatementRunnerCallback<T> callback);
 	}
 }

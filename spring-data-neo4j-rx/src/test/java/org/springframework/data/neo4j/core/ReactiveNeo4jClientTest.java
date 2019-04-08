@@ -18,60 +18,62 @@
  */
 package org.springframework.data.neo4j.core;
 
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.Record;
-import org.neo4j.driver.Session;
-import org.neo4j.driver.StatementResult;
+import org.neo4j.driver.reactive.RxResult;
+import org.neo4j.driver.reactive.RxSession;
+import org.neo4j.driver.summary.ResultSummary;
+import org.springframework.data.neo4j.core.Neo4jClientTest.Bike;
+import org.springframework.data.neo4j.core.Neo4jClientTest.BikeOwner;
+import org.springframework.data.neo4j.core.Neo4jClientTest.BikeOwnerBinder;
+import org.springframework.data.neo4j.core.Neo4jClientTest.BikeOwnerReader;
 
 /**
  * @author Michael J. Simons
  */
-class Neo4jClientTest {
+class ReactiveNeo4jClientTest {
 
 	private final Driver driver;
 
-	private final Session session;
+	private final RxSession session;
 
-	private final StatementResult statementResult;
+	private final RxResult statementResult;
 
-	Neo4jClientTest() {
+	ReactiveNeo4jClientTest() {
 
 		driver = mock(Driver.class);
-		session = mock(Session.class);
-		statementResult = mock(StatementResult.class);
+		session = mock(RxSession.class);
+		statementResult = mock(RxResult.class);
 
-		when(driver.session(any(Consumer.class))).thenReturn(session);
+		when(driver.rxSession(any(Consumer.class))).thenReturn(session);
 		when(session.run(anyString(), any(Map.class))).thenReturn(statementResult);
-		when(statementResult.stream()).thenReturn(Collections.<Record>emptyList().stream());
+		when(statementResult.records()).thenReturn(Flux.empty());
 	}
 
 	@Test
 	@DisplayName("Creation of queries and binding parameters should feel natural")
 	void queryCreationShouldFeelGood() {
 
-		Neo4jClient client = Neo4jClient.create(driver);
+		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
 
 		Map<String, Object> parameters = new HashMap<>();
 		parameters.put("bikeName", "M.*");
 		parameters.put("location", "Sweden");
 
-		Collection<Map<String, Object>> usedBikes = client
+		Flux<Map<String, Object>> usedBikes = client
 			.newQuery(
 				"MATCH (o:User {name: $name}) - [:OWNS] -> (b:Bike) - [:USED_ON] -> (t:Trip) " +
 					"WHERE t.takenOn > $aDate " +
@@ -89,8 +91,8 @@ class Neo4jClientTest {
 	@Test
 	void databaseSelectionShouldBePossibleOnlyOnce() {
 
-		Neo4jClient client = Neo4jClient.create(driver);
-		Collection<Map<String, Object>> users = client
+		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
+		Flux<Map<String, Object>> users = client
 			.newQuery("MATCH (u:User) WHERE u.name =~ $name")
 			.in("bikingDatabase")
 			.bind("Someone.*").to("name")
@@ -101,19 +103,19 @@ class Neo4jClientTest {
 	@Test
 	void callbackHandlingShouldFeelGood() {
 
-		Neo4jClient client = Neo4jClient.create(driver);
+		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
 		client
 			.with("aDatabase")
-			.delegateTo(runner -> Optional.empty());
+			.delegateTo(runner -> Mono.empty());
 	}
 
 	@Test
 	@DisplayName("Mapping should feel good")
 	void mappingShouldFeelGood() {
 
-		Neo4jClient client = Neo4jClient.create(driver);
+		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
 
-		Collection<BikeOwner> bikeOwners = client
+		Flux<BikeOwner> bikeOwners = client
 			.newQuery(
 				"MATCH (o:User {name: $name}) - [:OWNS] -> (b:Bike)" +
 					"RETURN o, collect(b) as bikes"
@@ -122,8 +124,9 @@ class Neo4jClientTest {
 			.fetchAs(BikeOwner.class).mappedBy(new BikeOwnerReader())
 			.all();
 
-		BikeOwner michael = new BikeOwner("Michael", Arrays.asList(new Bike("Road"), new Bike("MTB")));
-		client
+		BikeOwner michael = new BikeOwner("Michael", Arrays
+			.asList(new Bike("Road"), new Bike("MTB")));
+		Mono<ResultSummary> resultSummary = client
 			.newQuery(
 				"MERGE (u:User {name: 'Michael'}) "
 					+ "WITH u UNWIND $bikes as bike "
@@ -137,9 +140,9 @@ class Neo4jClientTest {
 	@DisplayName("Some automatic conversion is ok")
 	void someTypesShouldNeedNoMapper() {
 
-		Neo4jClient client = Neo4jClient.create(driver);
+		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
 
-		Optional<Long> numberOfBikes = client
+		Mono<Long> numberOfBikes = client
 			.newQuery("MATCH (b:Bike) RETURN count(b)")
 			.fetchAs(Long.class)
 			.one();
@@ -149,61 +152,11 @@ class Neo4jClientTest {
 	@DisplayName("Queries that return nothing should fit in")
 	void queriesWithoutResultShouldFitInAsWell() {
 
-		Neo4jClient client = Neo4jClient.create(driver);
+		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
 
-		client
+		Mono<ResultSummary> resultSummary = client
 			.newQuery("DETACH DELETE (b) WHERE name = $name")
 			.bind("fixie").to("name")
 			.run();
-	}
-
-	static class BikeOwner {
-
-		private final String name;
-
-		private final List<Bike> bikes;
-
-		BikeOwner(String name, List<Bike> bikes) {
-			this.name = name;
-			this.bikes = new ArrayList<>(bikes);
-		}
-
-		public String getName() {
-			return name;
-		}
-
-		public List<Bike> getBikes() {
-			return Collections.unmodifiableList(bikes);
-		}
-	}
-
-	static class Bike {
-
-		private final String name;
-
-		Bike(String name) {
-			this.name = name;
-		}
-
-		public String getName() {
-			return name;
-		}
-	}
-
-	static class BikeOwnerReader implements Function<Record, BikeOwner> {
-
-		@Override
-		public BikeOwner apply(Record record) {
-			return null;
-		}
-	}
-
-	static class BikeOwnerBinder implements Function<BikeOwner, Map<String, Object>> {
-
-		@Override
-		public Map<String, Object> apply(BikeOwner bikeOwner) {
-
-			return Collections.emptyMap();
-		}
 	}
 }

@@ -43,7 +43,7 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.StatementResult;
 import org.neo4j.driver.StatementRunner;
 import org.neo4j.driver.summary.ResultSummary;
-import org.springframework.data.neo4j.core.transaction.NativeTransactionProvider;
+import org.springframework.data.neo4j.core.transaction.Neo4jTransactionUtils;
 
 /**
  * Default implementation of {@link Neo4jClient}. Uses the Neo4j Java driver to connect to and interact with the database.
@@ -53,144 +53,23 @@ import org.springframework.data.neo4j.core.transaction.NativeTransactionProvider
  * @author Michael J. Simons
  */
 class DefaultNeo4jClient implements Neo4jClient {
+
 	private final Driver driver;
 
-	private final NativeTransactionProvider transactionProvider;
-
-	DefaultNeo4jClient(Driver driver, NativeTransactionProvider transactionProvider) {
+	DefaultNeo4jClient(Driver driver) {
 
 		this.driver = driver;
-		this.transactionProvider = transactionProvider;
 	}
 
-	AutoCloseableStatementRunner getStatementRunner() {
+	AutoCloseableStatementRunner getStatementRunner(final String targetDatabase) {
 
-		StatementRunner statementRunner = transactionProvider.retrieveTransaction(driver, null)
+		StatementRunner statementRunner = Neo4jTransactionUtils.retrieveTransaction(driver, targetDatabase)
 			.map(StatementRunner.class::cast)
-			.orElseGet(() -> driver.session());
+			.orElseGet(() -> driver.session(t -> t.withDatabase(targetDatabase)));
 
 		return (AutoCloseableStatementRunner) Proxy.newProxyInstance(StatementRunner.class.getClassLoader(),
 			new Class<?>[] { AutoCloseableStatementRunner.class },
 			new AutoCloseableStatementRunnerHandler(statementRunner));
-	}
-
-	@Override
-	public RunnableSpec newQuery(String cypher) {
-		return newQuery(() -> cypher);
-	}
-
-	@Override
-	public RunnableSpec newQuery(Supplier<String> cypherSupplier) {
-		return new DefaultRunnableSpec(cypherSupplier);
-	}
-
-	@RequiredArgsConstructor
-	class DefaultRunnableSpec implements RunnableSpec {
-
-		private final Supplier<String> cypherSupplier;
-
-		// TODO Make the evaluation of binders lazy
-		private final Map<String, Object> parameters = new HashMap<>();
-
-		@RequiredArgsConstructor
-		class DefaultOngoingBindSpec<T> implements OngoingBindSpec<T, RunnableSpec> {
-
-			private final T value;
-
-			@Override
-			public RunnableSpec to(String name) {
-				return bindAll(Collections.singletonMap(name, value));
-			}
-
-			@Override
-			public RunnableSpec with(Function<T, Map<String, Object>> binder) {
-				return bindAll(binder.apply(value));
-			}
-		}
-
-		@Override
-		public OngoingBindSpec<?, RunnableSpec> bind(Object value) {
-			return new DefaultOngoingBindSpec(value);
-		}
-
-		@Override
-		public RunnableSpec bindAll(Map<String, Object> newParameters) {
-			newParameters.forEach((k, v) -> {
-				if (parameters.containsKey(k)) {
-					Object previousValue = parameters.get(k);
-					throw new IllegalArgumentException(String.format(
-						"Duplicate parameter name: '%s' already in the list of named parameters with value '%s'. New value would be '%s'",
-						k,
-						previousValue == null ? "null" : previousValue.toString(),
-						v == null ? "null" : v.toString()
-					));
-				}
-				parameters.put(k, v);
-			});
-
-			return this;
-		}
-
-		@Override
-		public <R> MappingSpec<R> fetchAs(Class<R> targetClass) {
-			return new DefaultRecordFetchSpec(cypherSupplier, parameters);
-		}
-
-		@Override
-		public RecordFetchSpec<Map<String, Object>> fetch() {
-			return new DefaultRecordFetchSpec<>(
-				cypherSupplier,
-				parameters, Record::asMap);
-		}
-
-		@Override
-		public ResultSummary run() {
-			try (AutoCloseableStatementRunner statementRunner = getStatementRunner()) {
-				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
-				return result.consume();
-			}
-		}
-	}
-
-	@AllArgsConstructor
-	@RequiredArgsConstructor
-	class DefaultRecordFetchSpec<T> implements RecordFetchSpec<T>, MappingSpec<T> {
-
-		private final Supplier<String> cypherSupplier;
-
-		private final Map<String, Object> parameters;
-
-		private Function<Record, T> mappingFunction;
-
-		@Override
-		public RecordFetchSpec<T> mappedBy(@SuppressWarnings("HiddenField") Function<Record, T> mappingFunction) {
-			this.mappingFunction = mappingFunction;
-			return this;
-		}
-
-		@Override
-		public Optional<T> one() {
-			try (AutoCloseableStatementRunner statementRunner = getStatementRunner()) {
-				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
-				return result.hasNext() ? Optional.of(mappingFunction.apply(result.single())) : Optional.empty();
-			}
-		}
-
-		@Override
-		public Optional<T> first() {
-			try (AutoCloseableStatementRunner statementRunner = getStatementRunner()) {
-				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
-				return result.stream().map(mappingFunction).findFirst();
-			}
-		}
-
-		@Override
-		public Collection<T> all() {
-			try (AutoCloseableStatementRunner statementRunner = getStatementRunner()) {
-				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
-				return result.stream().map(mappingFunction).collect(toList());
-			}
-		}
 	}
 
 	/**
@@ -201,7 +80,7 @@ class DefaultNeo4jClient implements Neo4jClient {
 		@Override void close();
 	}
 
-	private static class AutoCloseableStatementRunnerHandler implements InvocationHandler {
+	static class AutoCloseableStatementRunnerHandler implements InvocationHandler {
 
 		private final Map<Method, MethodHandle> cachedHandles = new ConcurrentHashMap<>();
 		private final StatementRunner target;
@@ -229,6 +108,156 @@ class DefaultNeo4jClient implements Neo4jClient {
 				return MethodHandles.publicLookup().unreflect(method).bindTo(target);
 			} catch (IllegalAccessException e) {
 				throw new RuntimeException(e);
+			}
+		}
+	}
+
+	// Below are all the implementations (methods and classes) as defined by the contracts of Neo4jClient
+
+	@Override
+	public RunnableSpec newQuery(String cypher) {
+		return newQuery(() -> cypher);
+	}
+
+	@Override
+	public RunnableSpec newQuery(Supplier<String> cypherSupplier) {
+		return new DefaultRunnableSpec(cypherSupplier);
+	}
+
+	@Override
+	public OngoingDelegation with(String targetDatabase) {
+		return callback -> {
+			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(targetDatabase)) {
+				return callback.doWithRunner(statementRunner);
+			}
+		};
+	}
+
+	@RequiredArgsConstructor
+	class DefaultRunnableSpec implements RunnableSpec {
+
+		private final Supplier<String> cypherSupplier;
+
+		private String targetDatabase;
+
+		// TODO Make the evaluation of binders lazy
+		private final Map<String, Object> parameters = new HashMap<>();
+
+		@Override
+		public RunnableSpecTightToDatabase in(@SuppressWarnings("HiddenField") String targetDatabase) {
+			this.targetDatabase = targetDatabase;
+			return this;
+		}
+
+		@RequiredArgsConstructor
+		class DefaultOngoingBindSpec<T> implements OngoingBindSpec<T, RunnableSpecTightToDatabase> {
+
+			private final T value;
+
+			@Override
+			public RunnableSpecTightToDatabase to(String name) {
+				return bindAll(Collections.singletonMap(name, value));
+			}
+
+			@Override
+			public RunnableSpecTightToDatabase with(Function<T, Map<String, Object>> binder) {
+				return bindAll(binder.apply(value));
+			}
+		}
+
+		@Override
+		public OngoingBindSpec<?, RunnableSpecTightToDatabase> bind(Object value) {
+			return new DefaultOngoingBindSpec(value);
+		}
+
+		@Override
+		public RunnableSpecTightToDatabase bindAll(Map<String, Object> newParameters) {
+			newParameters.forEach((k, v) -> {
+				if (parameters.containsKey(k)) {
+					Object previousValue = parameters.get(k);
+					throw new IllegalArgumentException(String.format(
+						"Duplicate parameter name: '%s' already in the list of named parameters with value '%s'. New value would be '%s'",
+						k,
+						previousValue == null ? "null" : previousValue.toString(),
+						v == null ? "null" : v.toString()
+					));
+				}
+				parameters.put(k, v);
+			});
+
+			return this;
+		}
+
+		@Override
+		public <R> MappingSpec<Optional<R>, Collection<R>, R> fetchAs(Class<R> targetClass) {
+
+			return new DefaultRecordFetchSpec(this.targetDatabase, this.cypherSupplier, this.parameters);
+		}
+
+		@Override
+		public RecordFetchSpec<Optional<Map<String, Object>>, Collection<Map<String, Object>>, Map<String, Object>> fetch() {
+
+			return new DefaultRecordFetchSpec<>(
+				this.targetDatabase,
+				this.cypherSupplier,
+				this.parameters, Record::asMap);
+		}
+
+		@Override
+		public ResultSummary run() {
+
+			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(this.targetDatabase)) {
+				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
+				return result.consume();
+			}
+		}
+	}
+
+	@AllArgsConstructor
+	@RequiredArgsConstructor
+	class DefaultRecordFetchSpec<T>
+		implements RecordFetchSpec<Optional<T>, Collection<T>, T>, MappingSpec<Optional<T>, Collection<T>, T> {
+
+		private final String targetDatabase;
+
+		private final Supplier<String> cypherSupplier;
+
+		private final Map<String, Object> parameters;
+
+		private Function<Record, T> mappingFunction;
+
+		@Override
+		public RecordFetchSpec<Optional<T>, Collection<T>, T> mappedBy(
+			@SuppressWarnings("HiddenField") Function<Record, T> mappingFunction) {
+
+			this.mappingFunction = mappingFunction;
+			return this;
+		}
+
+		@Override
+		public Optional<T> one() {
+
+			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(this.targetDatabase)) {
+				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
+				return result.hasNext() ? Optional.of(mappingFunction.apply(result.single())) : Optional.empty();
+			}
+		}
+
+		@Override
+		public Optional<T> first() {
+
+			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(this.targetDatabase)) {
+				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
+				return result.stream().map(mappingFunction).findFirst();
+			}
+		}
+
+		@Override
+		public Collection<T> all() {
+
+			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(this.targetDatabase)) {
+				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
+				return result.stream().map(mappingFunction).collect(toList());
 			}
 		}
 	}

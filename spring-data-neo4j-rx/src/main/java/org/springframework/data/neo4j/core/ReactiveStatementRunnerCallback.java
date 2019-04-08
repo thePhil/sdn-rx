@@ -18,7 +18,7 @@
  */
 package org.springframework.data.neo4j.core;
 
-import java.util.Optional;
+import reactor.core.publisher.Mono;
 
 import org.apiguardian.api.API;
 import org.neo4j.driver.reactive.RxStatementRunner;
@@ -38,10 +38,10 @@ import org.neo4j.driver.reactive.RxStatementRunner;
 public interface ReactiveStatementRunnerCallback<T> {
 
 	/**
-	 * Gets called by the template and clients of this API can use the supplied runner for as many statements as needed.
+	 * Gets called by the reactive client. The supplied runner can be used for as many statements as needed.
 	 *
 	 * @param statementRunner A statement runner participating in ongoing transactions
 	 * @return A possible result (may be empty, but not null)
 	 */
-	Optional<T> doWithRunner(RxStatementRunner statementRunner);
+	Mono<T> doWithRunner(RxStatementRunner statementRunner);
 }
