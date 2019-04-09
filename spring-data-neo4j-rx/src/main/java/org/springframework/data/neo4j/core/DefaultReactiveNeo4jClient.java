@@ -24,9 +24,8 @@ import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.function.Tuple2;
 
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -117,11 +116,10 @@ class DefaultReactiveNeo4jClient implements ReactiveNeo4jClient {
 
 		private String targetDatabase;
 
-		// TODO Make the evaluation of binders lazy
-		private final Map<String, Object> parameters = new HashMap<>();
+		private final NamedParameters parameters = new NamedParameters();
 
 		@Override
-		public DefaultReactiveRunnableSpec in(@SuppressWarnings("HiddenField") String targetDatabase) {
+		public ReactiveRunnableSpecTightToDatabase in(@SuppressWarnings("HiddenField") String targetDatabase) {
 			this.targetDatabase = targetDatabase;
 			return this;
 		}
@@ -133,7 +131,9 @@ class DefaultReactiveNeo4jClient implements ReactiveNeo4jClient {
 
 			@Override
 			public ReactiveRunnableSpecTightToDatabase to(String name) {
-				return bindAll(Collections.singletonMap(name, value));
+
+				DefaultReactiveRunnableSpec.this.parameters.add(name, value);
+				return DefaultReactiveRunnableSpec.this;
 			}
 
 			@Override
@@ -149,26 +149,15 @@ class DefaultReactiveNeo4jClient implements ReactiveNeo4jClient {
 
 		@Override
 		public ReactiveRunnableSpecTightToDatabase bindAll(Map<String, Object> newParameters) {
-			newParameters.forEach((k, v) -> {
-				if (parameters.containsKey(k)) {
-					Object previousValue = parameters.get(k);
-					throw new IllegalArgumentException(String.format(
-						"Duplicate parameter name: '%s' already in the list of named parameters with value '%s'. New value would be '%s'",
-						k,
-						previousValue == null ? "null" : previousValue.toString(),
-						v == null ? "null" : v.toString()
-					));
-				}
-				parameters.put(k, v);
-			});
-
+			this.parameters.addAll(newParameters);
 			return this;
 		}
 
 		@Override
 		public <R> MappingSpec<Mono<R>, Flux<R>, R> fetchAs(Class<R> targetClass) {
 
-			return new DefaultReactiveRecordFetchSpec<>(this.targetDatabase, this.cypherSupplier, this.parameters);
+			return new DefaultReactiveRecordFetchSpec<>(this.targetDatabase, this.cypherSupplier, this.parameters,
+				new SingleValueMappingFunction(targetClass));
 		}
 
 		@Override
@@ -180,13 +169,10 @@ class DefaultReactiveNeo4jClient implements ReactiveNeo4jClient {
 		@Override
 		public Mono<ResultSummary> run() {
 
-			return Mono
-				.usingWhen(
-					getStatementRunner(targetDatabase),
-					statementRunner -> Mono.from(statementRunner.run(cypherSupplier.get(), parameters).summary()),
-					DefaultReactiveNeo4jClient::asyncComplete,
-					DefaultReactiveNeo4jClient::asyncError
-				);
+			return new DefaultReactiveRecordFetchSpec<>(
+				this.targetDatabase,
+				this.cypherSupplier,
+				this.parameters).run();
 		}
 	}
 
@@ -199,7 +185,7 @@ class DefaultReactiveNeo4jClient implements ReactiveNeo4jClient {
 
 		private final Supplier<String> cypherSupplier;
 
-		private final Map<String, Object> parameters;
+		private final NamedParameters parameters;
 
 		private Function<Record, T> mappingFunction;
 
@@ -210,13 +196,22 @@ class DefaultReactiveNeo4jClient implements ReactiveNeo4jClient {
 			return this;
 		}
 
+		Mono<Tuple2<String, Map<String, Object>>> prepareStatement() {
+
+			return Mono.fromSupplier(cypherSupplier).zipWith(Mono.just(parameters.get()));
+		}
+
+		Flux<T> executeWith(Tuple2<String, Map<String, Object>> t, RxStatementRunner runner) {
+
+			return Flux.from(runner.run(t.getT1(), t.getT2()).records()).map(mappingFunction);
+		}
+
 		@Override
 		public Mono<T> one() {
 
 			return Mono.usingWhen(
 				getStatementRunner(targetDatabase),
-				runner -> Mono.from(runner.run(cypherSupplier.get(), parameters).records()).map(mappingFunction)
-					.single(),
+				runner -> prepareStatement().flatMapMany(t -> executeWith(t, runner)).single(),
 				DefaultReactiveNeo4jClient::asyncComplete,
 				DefaultReactiveNeo4jClient::asyncError
 			);
@@ -227,7 +222,7 @@ class DefaultReactiveNeo4jClient implements ReactiveNeo4jClient {
 
 			return Mono.usingWhen(
 				getStatementRunner(targetDatabase),
-				runner -> Flux.from(runner.run(cypherSupplier.get(), parameters).records()).map(mappingFunction).next(),
+				runner -> prepareStatement().flatMapMany(t -> executeWith(t, runner)).next(),
 				DefaultReactiveNeo4jClient::asyncComplete,
 				DefaultReactiveNeo4jClient::asyncError
 			);
@@ -238,10 +233,21 @@ class DefaultReactiveNeo4jClient implements ReactiveNeo4jClient {
 
 			return Flux.usingWhen(
 				getStatementRunner(targetDatabase),
-				runner -> Flux.from(runner.run(cypherSupplier.get(), parameters).records()).map(mappingFunction),
+				runner -> prepareStatement().flatMapMany(t -> executeWith(t, runner)),
 				DefaultReactiveNeo4jClient::asyncComplete,
 				DefaultReactiveNeo4jClient::asyncError
 			);
+		}
+
+		Mono<ResultSummary> run() {
+
+			return Mono
+				.usingWhen(
+					getStatementRunner(targetDatabase),
+					runner -> prepareStatement().flatMap(t -> Mono.from(runner.run(t.getT1(), t.getT2()).summary())),
+					DefaultReactiveNeo4jClient::asyncComplete,
+					DefaultReactiveNeo4jClient::asyncError
+				);
 		}
 	}
 }

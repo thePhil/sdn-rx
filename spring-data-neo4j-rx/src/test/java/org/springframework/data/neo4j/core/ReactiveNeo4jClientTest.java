@@ -20,9 +20,12 @@ package org.springframework.data.neo4j.core;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.hamcrest.MockitoHamcrest.argThat;
+import static org.springframework.data.neo4j.core.transaction.Neo4jTransactionUtils.*;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
 import java.util.Arrays;
@@ -30,9 +33,20 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.Record;
+import org.neo4j.driver.Values;
+import org.neo4j.driver.internal.SessionParameters;
 import org.neo4j.driver.reactive.RxResult;
 import org.neo4j.driver.reactive.RxSession;
 import org.neo4j.driver.summary.ResultSummary;
@@ -40,32 +54,62 @@ import org.springframework.data.neo4j.core.Neo4jClientTest.Bike;
 import org.springframework.data.neo4j.core.Neo4jClientTest.BikeOwner;
 import org.springframework.data.neo4j.core.Neo4jClientTest.BikeOwnerBinder;
 import org.springframework.data.neo4j.core.Neo4jClientTest.BikeOwnerReader;
+import org.springframework.data.neo4j.core.Neo4jClientTest.MapAssertionMatcher;
 
 /**
  * @author Michael J. Simons
  */
+@ExtendWith(MockitoExtension.class)
 class ReactiveNeo4jClientTest {
 
-	private final Driver driver;
+	@Mock
+	private Driver driver;
 
-	private final RxSession session;
+	private ArgumentCaptor<Consumer> sessionTemplateCaptor = ArgumentCaptor.forClass(Consumer.class);
 
-	private final RxResult statementResult;
+	@Mock
+	private SessionParameters.Template sessionParametersTemplate;
 
-	ReactiveNeo4jClientTest() {
+	@Mock
+	private RxSession session;
 
-		driver = mock(Driver.class);
-		session = mock(RxSession.class);
-		statementResult = mock(RxResult.class);
+	@Mock
+	private RxResult statementResult;
+
+	@Mock
+	private ResultSummary resultSummary;
+
+	@Mock
+	private Record record1;
+
+	@Mock
+	private Record record2;
+
+	@BeforeEach
+	void prepareMocks() {
+
+		when(sessionParametersTemplate.withDatabase(anyString())).thenReturn(sessionParametersTemplate);
+		when(sessionParametersTemplate.withBookmarks(anyList())).thenReturn(sessionParametersTemplate);
+		when(sessionParametersTemplate.withDefaultAccessMode(any(AccessMode.class)))
+			.thenReturn(sessionParametersTemplate);
 
 		when(driver.rxSession(any(Consumer.class))).thenReturn(session);
-		when(session.run(anyString(), any(Map.class))).thenReturn(statementResult);
-		when(statementResult.records()).thenReturn(Flux.empty());
+
+		when(session.close()).thenReturn(Mono.empty());
 	}
+
+	@AfterEach
+	void verifyNoMoreInteractionsWithMocks() {
+		verifyNoMoreInteractions(driver, session, statementResult, resultSummary, record1, record2);
+	}
+
 
 	@Test
 	@DisplayName("Creation of queries and binding parameters should feel natural")
 	void queryCreationShouldFeelGood() {
+
+		when(session.run(anyString(), anyMap())).thenReturn(statementResult);
+		when(statementResult.records()).thenReturn(Flux.just(record1, record2));
 
 		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
 
@@ -73,90 +117,218 @@ class ReactiveNeo4jClientTest {
 		parameters.put("bikeName", "M.*");
 		parameters.put("location", "Sweden");
 
+		String cypher = "MATCH (o:User {name: $name}) - [:OWNS] -> (b:Bike) - [:USED_ON] -> (t:Trip) " +
+			"WHERE t.takenOn > $aDate " +
+			"  AND b.name =~ $bikeName " +
+			"  AND t.location = $location " +
+			"RETURN b";
+
 		Flux<Map<String, Object>> usedBikes = client
-			.newQuery(
-				"MATCH (o:User {name: $name}) - [:OWNS] -> (b:Bike) - [:USED_ON] -> (t:Trip) " +
-					"WHERE t.takenOn > $aDate " +
-					"  AND b.name =~ $bikeName " +
-					"  AND t.location = $location " +  // TODO Nice place to add coordinates
-					"RETURN b"
-			)
+			.newQuery(cypher)
 			.bind("michael").to("name")
 			.bindAll(parameters)
 			.bind(LocalDate.of(2019, 1, 1)).to("aDate")
 			.fetch()
 			.all();
+
+		StepVerifier.create(usedBikes)
+			.expectNextCount(2L)
+			.verifyComplete();
+
+		verifyDatabaseSelection(DEFAULT_DATABASE_NAME);
+
+		Map<String, Object> expectedParameters = new HashMap<>();
+		expectedParameters.putAll(parameters);
+		expectedParameters.put("name", "michael");
+		expectedParameters.put("aDate", LocalDate.of(2019, 1, 1));
+		verify(session).run(eq(cypher), argThat(new MapAssertionMatcher(expectedParameters)));
+
+		verify(statementResult).records();
+		verify(record1).asMap();
+		verify(record2).asMap();
+		verify(session).close();
 	}
 
 	@Test
 	void databaseSelectionShouldBePossibleOnlyOnce() {
 
+		when(session.run(anyString(), anyMap())).thenReturn(statementResult);
+		when(statementResult.records()).thenReturn(Flux.just(record1, record2));
+
 		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
-		Flux<Map<String, Object>> users = client
-			.newQuery("MATCH (u:User) WHERE u.name =~ $name")
+
+		String cypher = "MATCH (u:User) WHERE u.name =~ $name";
+		Mono<Map<String, Object>> firstMatchingUser = client
+			.newQuery(cypher)
 			.in("bikingDatabase")
 			.bind("Someone.*").to("name")
 			.fetch()
-			.all();
+			.first();
+
+		StepVerifier.create(firstMatchingUser)
+			.expectNextCount(1L)
+			.verifyComplete();
+
+		verifyDatabaseSelection("bikingDatabase");
+
+		Map<String, Object> expectedParameters = new HashMap<>();
+		expectedParameters.put("name", "Someone.*");
+
+		verify(session).run(eq(cypher), argThat(new MapAssertionMatcher(expectedParameters)));
+		verify(statementResult).records();
+		verify(record1).asMap();
+		verify(session).close();
 	}
 
 	@Test
 	void callbackHandlingShouldFeelGood() {
 
 		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
-		client
+		Mono<Integer> result = client
 			.with("aDatabase")
-			.delegateTo(runner -> Mono.empty());
+			.delegateTo(runner -> Mono.just(21));
+
+		StepVerifier.create(result)
+			.expectNext(21)
+			.verifyComplete();
+
+		verifyDatabaseSelection("aDatabase");
+
+		verify(session).close();
 	}
 
-	@Test
+	@Nested
 	@DisplayName("Mapping should feel good")
-	void mappingShouldFeelGood() {
+	class MappingShouldFeelGood {
 
-		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
+		@Test
+		void reading() {
 
-		Flux<BikeOwner> bikeOwners = client
-			.newQuery(
-				"MATCH (o:User {name: $name}) - [:OWNS] -> (b:Bike)" +
-					"RETURN o, collect(b) as bikes"
-			)
-			.bind("michael").to("name")
-			.fetchAs(BikeOwner.class).mappedBy(new BikeOwnerReader())
-			.all();
+			when(session.run(anyString(), anyMap())).thenReturn(statementResult);
+			when(statementResult.records()).thenReturn(Flux.just(record1));
+			when(record1.get("name")).thenReturn(Values.value("michael"));
 
-		BikeOwner michael = new BikeOwner("Michael", Arrays
-			.asList(new Bike("Road"), new Bike("MTB")));
-		Mono<ResultSummary> resultSummary = client
-			.newQuery(
-				"MERGE (u:User {name: 'Michael'}) "
-					+ "WITH u UNWIND $bikes as bike "
-					+ "MERGE (b:Bike {name: bike}) "
-					+ "MERGE (u) - [o:OWNS] -> (b) ")
-			.bind(michael).with(new BikeOwnerBinder())
-			.run();
-	}
+			ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
 
-	@Test
-	@DisplayName("Some automatic conversion is ok")
-	void someTypesShouldNeedNoMapper() {
+			String cypher = "MATCH (o:User {name: $name}) - [:OWNS] -> (b:Bike)" +
+				"RETURN o, collect(b) as bikes";
 
-		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
+			BikeOwnerReader mappingFunction = new BikeOwnerReader();
+			Flux<BikeOwner> bikeOwners = client
+				.newQuery(cypher)
+				.bind("michael").to("name")
+				.fetchAs(BikeOwner.class).mappedBy(mappingFunction)
+				.all();
 
-		Mono<Long> numberOfBikes = client
-			.newQuery("MATCH (b:Bike) RETURN count(b)")
-			.fetchAs(Long.class)
-			.one();
+			StepVerifier.create(bikeOwners)
+				.expectNextMatches(o -> o.getName().equals("michael"))
+				.verifyComplete();
+
+			verifyDatabaseSelection(DEFAULT_DATABASE_NAME);
+
+			Map<String, Object> expectedParameters = new HashMap<>();
+			expectedParameters.put("name", "michael");
+
+			verify(session).run(eq(cypher), argThat(new MapAssertionMatcher(expectedParameters)));
+			verify(statementResult).records();
+			verify(record1).get("name");
+			verify(session).close();
+		}
+
+		@Test
+		void writing() {
+
+			when(session.run(anyString(), anyMap())).thenReturn(statementResult);
+			when(statementResult.summary()).thenReturn(Mono.just(resultSummary));
+
+			ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
+
+			BikeOwner michael = new BikeOwner("Michael", Arrays.asList(new Bike("Road"), new Bike("MTB")));
+			String cypher = "MERGE (u:User {name: 'Michael'}) "
+				+ "WITH u UNWIND $bikes as bike "
+				+ "MERGE (b:Bike {name: bike}) "
+				+ "MERGE (u) - [o:OWNS] -> (b) ";
+
+			Mono<ResultSummary> summary = client
+				.newQuery(cypher)
+				.bind(michael).with(new BikeOwnerBinder())
+				.run();
+
+			StepVerifier.create(summary)
+				.expectNext(resultSummary)
+				.verifyComplete();
+
+			verifyDatabaseSelection(DEFAULT_DATABASE_NAME);
+
+			Map<String, Object> expectedParameters = new HashMap<>();
+			expectedParameters.put("name", "Michael");
+
+			verify(session).run(eq(cypher), argThat(new MapAssertionMatcher(expectedParameters)));
+			verify(statementResult).summary();
+			verify(session).close();
+		}
+
+		@Test
+		@DisplayName("Some automatic conversion is ok")
+		void automaticConversion() {
+
+			when(session.run(anyString(), anyMap())).thenReturn(statementResult);
+			when(statementResult.records()).thenReturn(Flux.just(record1));
+			when(record1.size()).thenReturn(1);
+			when(record1.get(0)).thenReturn(Values.value(23L));
+
+			ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
+
+			String cypher = "MATCH (b:Bike) RETURN count(b)";
+			Mono<Long> numberOfBikes = client
+				.newQuery(cypher)
+				.fetchAs(Long.class)
+				.one();
+
+			StepVerifier.create(numberOfBikes)
+				.expectNext(23L)
+				.verifyComplete();
+
+			verifyDatabaseSelection(DEFAULT_DATABASE_NAME);
+
+			verify(session).run(eq(cypher), anyMap());
+			verify(session).close();
+		}
 	}
 
 	@Test
 	@DisplayName("Queries that return nothing should fit in")
 	void queriesWithoutResultShouldFitInAsWell() {
 
+		when(session.run(anyString(), anyMap())).thenReturn(statementResult);
+		when(statementResult.summary()).thenReturn(Mono.just(resultSummary));
+
 		ReactiveNeo4jClient client = ReactiveNeo4jClient.create(driver);
 
-		Mono<ResultSummary> resultSummary = client
-			.newQuery("DETACH DELETE (b) WHERE name = $name")
+		String cypher = "DETACH DELETE (b) WHERE name = $name";
+
+		Mono<ResultSummary> deletionResult = client
+			.newQuery(cypher)
 			.bind("fixie").to("name")
 			.run();
+
+		StepVerifier.create(deletionResult)
+			.expectNext(resultSummary)
+			.verifyComplete();
+
+		verifyDatabaseSelection(DEFAULT_DATABASE_NAME);
+
+		Map<String, Object> expectedParameters = new HashMap<>();
+		expectedParameters.put("name", "fixie");
+
+		verify(session).run(eq(cypher), argThat(new MapAssertionMatcher(expectedParameters)));
+		verify(statementResult).summary();
+		verify(session).close();
+	}
+
+	void verifyDatabaseSelection(String targetDatabase) {
+		verify(driver).rxSession(sessionTemplateCaptor.capture());
+		sessionTemplateCaptor.getValue().accept(sessionParametersTemplate);
+		verify(sessionParametersTemplate).withDatabase(targetDatabase);
 	}
 }

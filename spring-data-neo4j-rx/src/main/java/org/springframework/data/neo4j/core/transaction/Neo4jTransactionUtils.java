@@ -39,7 +39,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  */
 public final class Neo4jTransactionUtils {
 
-	static final String DEFAULT_DATABASE_NAME = "";
+	public static final String DEFAULT_DATABASE_NAME = "";
 
 	/**
 	 * The default session uses {@link AccessMode#WRITE} and an empty list of bookmarks.
@@ -53,7 +53,6 @@ public final class Neo4jTransactionUtils {
 				.withDefaultAccessMode(AccessMode.WRITE)
 				.withBookmarks(Collections.EMPTY_LIST)
 				.withDatabase(Optional.ofNullable(databaseName).orElse(DEFAULT_DATABASE_NAME));
-			System.out.println("peng");
 		};
 	}
 

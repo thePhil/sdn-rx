@@ -19,6 +19,7 @@
 package org.springframework.data.neo4j.core;
 
 import static java.util.stream.Collectors.*;
+import static org.springframework.data.neo4j.core.transaction.Neo4jTransactionUtils.*;
 
 import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
@@ -29,8 +30,6 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,7 +42,6 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.StatementResult;
 import org.neo4j.driver.StatementRunner;
 import org.neo4j.driver.summary.ResultSummary;
-import org.springframework.data.neo4j.core.transaction.Neo4jTransactionUtils;
 
 /**
  * Default implementation of {@link Neo4jClient}. Uses the Neo4j Java driver to connect to and interact with the database.
@@ -63,9 +61,9 @@ class DefaultNeo4jClient implements Neo4jClient {
 
 	AutoCloseableStatementRunner getStatementRunner(final String targetDatabase) {
 
-		StatementRunner statementRunner = Neo4jTransactionUtils.retrieveTransaction(driver, targetDatabase)
+		StatementRunner statementRunner = retrieveTransaction(driver, targetDatabase)
 			.map(StatementRunner.class::cast)
-			.orElseGet(() -> driver.session(t -> t.withDatabase(targetDatabase)));
+			.orElseGet(() -> driver.session(defaultSessionParameters(targetDatabase)));
 
 		return (AutoCloseableStatementRunner) Proxy.newProxyInstance(StatementRunner.class.getClassLoader(),
 			new Class<?>[] { AutoCloseableStatementRunner.class },
@@ -140,8 +138,7 @@ class DefaultNeo4jClient implements Neo4jClient {
 
 		private String targetDatabase;
 
-		// TODO Make the evaluation of binders lazy
-		private final Map<String, Object> parameters = new HashMap<>();
+		private final NamedParameters parameters = new NamedParameters();
 
 		@Override
 		public RunnableSpecTightToDatabase in(@SuppressWarnings("HiddenField") String targetDatabase) {
@@ -156,7 +153,9 @@ class DefaultNeo4jClient implements Neo4jClient {
 
 			@Override
 			public RunnableSpecTightToDatabase to(String name) {
-				return bindAll(Collections.singletonMap(name, value));
+
+				DefaultRunnableSpec.this.parameters.add(name, value);
+				return DefaultRunnableSpec.this;
 			}
 
 			@Override
@@ -172,26 +171,15 @@ class DefaultNeo4jClient implements Neo4jClient {
 
 		@Override
 		public RunnableSpecTightToDatabase bindAll(Map<String, Object> newParameters) {
-			newParameters.forEach((k, v) -> {
-				if (parameters.containsKey(k)) {
-					Object previousValue = parameters.get(k);
-					throw new IllegalArgumentException(String.format(
-						"Duplicate parameter name: '%s' already in the list of named parameters with value '%s'. New value would be '%s'",
-						k,
-						previousValue == null ? "null" : previousValue.toString(),
-						v == null ? "null" : v.toString()
-					));
-				}
-				parameters.put(k, v);
-			});
-
+			this.parameters.addAll(newParameters);
 			return this;
 		}
 
 		@Override
-		public <R> MappingSpec<Optional<R>, Collection<R>, R> fetchAs(Class<R> targetClass) {
+		public <T> MappingSpec<Optional<T>, Collection<T>, T> fetchAs(Class<T> targetClass) {
 
-			return new DefaultRecordFetchSpec(this.targetDatabase, this.cypherSupplier, this.parameters);
+			return new DefaultRecordFetchSpec(this.targetDatabase, this.cypherSupplier, this.parameters,
+				new SingleValueMappingFunction(targetClass));
 		}
 
 		@Override
@@ -207,14 +195,13 @@ class DefaultNeo4jClient implements Neo4jClient {
 		public ResultSummary run() {
 
 			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(this.targetDatabase)) {
-				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
+				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters.get());
 				return result.consume();
 			}
 		}
 	}
 
 	@AllArgsConstructor
-	@RequiredArgsConstructor
 	class DefaultRecordFetchSpec<T>
 		implements RecordFetchSpec<Optional<T>, Collection<T>, T>, MappingSpec<Optional<T>, Collection<T>, T> {
 
@@ -222,7 +209,7 @@ class DefaultNeo4jClient implements Neo4jClient {
 
 		private final Supplier<String> cypherSupplier;
 
-		private final Map<String, Object> parameters;
+		private final NamedParameters parameters;
 
 		private Function<Record, T> mappingFunction;
 
@@ -238,7 +225,7 @@ class DefaultNeo4jClient implements Neo4jClient {
 		public Optional<T> one() {
 
 			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(this.targetDatabase)) {
-				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
+				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters.get());
 				return result.hasNext() ? Optional.of(mappingFunction.apply(result.single())) : Optional.empty();
 			}
 		}
@@ -247,7 +234,7 @@ class DefaultNeo4jClient implements Neo4jClient {
 		public Optional<T> first() {
 
 			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(this.targetDatabase)) {
-				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
+				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters.get());
 				return result.stream().map(mappingFunction).findFirst();
 			}
 		}
@@ -256,7 +243,7 @@ class DefaultNeo4jClient implements Neo4jClient {
 		public Collection<T> all() {
 
 			try (AutoCloseableStatementRunner statementRunner = getStatementRunner(this.targetDatabase)) {
-				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters);
+				StatementResult result = statementRunner.run(cypherSupplier.get(), parameters.get());
 				return result.stream().map(mappingFunction).collect(toList());
 			}
 		}

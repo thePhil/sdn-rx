@@ -33,6 +33,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.neo4j.driver.AccessMode;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Transaction;
@@ -74,6 +75,11 @@ class TransactionHandlingTest {
 
 				ArgumentCaptor<Consumer> consumerCaptor = ArgumentCaptor.forClass(Consumer.class);
 				when(driver.session(any(Consumer.class))).thenReturn(session);
+
+				when(sessionParametersTemplate.withDatabase(anyString())).thenReturn(sessionParametersTemplate);
+				when(sessionParametersTemplate.withBookmarks(anyList())).thenReturn(sessionParametersTemplate);
+				when(sessionParametersTemplate.withDefaultAccessMode(any(AccessMode.class)))
+					.thenReturn(sessionParametersTemplate);
 
 				// Make template acquire session
 				DefaultNeo4jClient neo4jClient = new DefaultNeo4jClient(driver);

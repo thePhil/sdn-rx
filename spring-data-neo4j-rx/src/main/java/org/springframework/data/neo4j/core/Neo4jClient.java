@@ -97,10 +97,10 @@ public interface Neo4jClient {
 		 * Create a mapping for each record return to a specific type.
 		 *
 		 * @param targetClass The class each record should be mapped to
-		 * @param <R>         The type of the class
+		 * @param <T>         The type of the class
 		 * @return A mapping spec that allows specifying a mapping function
 		 */
-		<R> MappingSpec<Optional<R>, Collection<R>, R> fetchAs(Class<R> targetClass);
+		<T> MappingSpec<Optional<T>, Collection<T>, T> fetchAs(Class<T> targetClass);
 
 		/**
 		 * Fetch all records mapped into generic maps
@@ -160,19 +160,19 @@ public interface Neo4jClient {
 	/**
 	 * @param <S> The type of the class holding zero or one result element
 	 * @param <M> The type of the class holding zero or more result elements
-	 * @param <R> The resulting type of this mapping
+	 * @param <T> The resulting type of this mapping
 	 */
-	interface MappingSpec<S, M, R> extends RecordFetchSpec<S, M, R> {
+	interface MappingSpec<S, M, T> extends RecordFetchSpec<S, M, T> {
 
-		RecordFetchSpec<S, M, R> mappedBy(Function<Record, R> mappingFunction);
+		RecordFetchSpec<S, M, T> mappedBy(Function<Record, T> mappingFunction);
 	}
 
 	/**
 	 * @param <S> The type of the class holding zero or one result element
 	 * @param <M> The type of the class holding zero or more result elements
-	 * @param <R> The type to which the fetched records are eventually mapped
+	 * @param <T> The type to which the fetched records are eventually mapped
 	 */
-	interface RecordFetchSpec<S, M, R> {
+	interface RecordFetchSpec<S, M, T> {
 
 		S one();
 

@@ -97,10 +97,10 @@ public interface ReactiveNeo4jClient {
 		 * Create a mapping for each record return to a specific type.
 		 *
 		 * @param targetClass The class each record should be mapped to
-		 * @param <R>         The type of the class
+		 * @param <T>         The type of the class
 		 * @return A mapping spec that allows specifying a mapping function
 		 */
-		<R> MappingSpec<Mono<R>, Flux<R>, R> fetchAs(Class<R> targetClass);
+		<T> MappingSpec<Mono<T>, Flux<T>, T> fetchAs(Class<T> targetClass);
 
 		/**
 		 * Fetch all records mapped into generic maps
