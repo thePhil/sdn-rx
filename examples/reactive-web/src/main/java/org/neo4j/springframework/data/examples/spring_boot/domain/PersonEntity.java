@@ -23,6 +23,7 @@ import org.neo4j.springframework.data.core.schema.Node;
 
 /**
  * @author Gerrit Meier
+ * @author Michael J. Simons
  */
 @Node("Person")
 public class PersonEntity {
@@ -30,19 +31,22 @@ public class PersonEntity {
 	@Id
 	private final String name;
 
-	private final Long born;
+	private Long born;
 
-	public PersonEntity(Long born, String name) {
+	public PersonEntity(String name, Long born) {
 		this.born = born;
 		this.name = name;
-	}
-
-	public Long getBorn() {
-		return born;
 	}
 
 	public String getName() {
 		return name;
 	}
 
+	public Long getBorn() {
+		return born;
+	}
+
+	public void setBorn(Long born) {
+		this.born = born;
+	}
 }
