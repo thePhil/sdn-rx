@@ -1,0 +1,7 @@
+include::introduction.adoc[]
+
+include::preface.adoc[]
+
+include::mapping.adoc[]
+
+include::adapted-spring-commons/auditing.adoc[]

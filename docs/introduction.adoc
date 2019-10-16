@@ -14,3 +14,5 @@ Choices are  <<neo4j-repositories, Neo4j repositories>>, <<neo4j-template, the N
 All of them are available in a <<reactive-programming,reactive fashion>> as well. Apart from the paging mechanism, all the features of standard repositories are available in the reactive variant as well.
 
 To learn more about the general concepts of repositories, head over to <<repositories>>.
+
+You can of course read on, continuing with the preface and a gentle getting started guide.

@@ -18,13 +18,17 @@
  */
 package org.neo4j.springframework.data.examples.spring_boot.domain;
 
+// tag::mapping.annotations[]
 import org.neo4j.springframework.data.core.schema.Id;
 import org.neo4j.springframework.data.core.schema.Node;
+
+// end::mapping.annotations[]
 
 /**
  * @author Gerrit Meier
  * @author Michael J. Simons
  */
+// tag::mapping.annotations[]
 @Node("Person")
 public class PersonEntity {
 
@@ -50,3 +54,4 @@ public class PersonEntity {
 		this.born = born;
 	}
 }
+// end::mapping.annotations[]
