@@ -1154,3 +1154,56 @@ Assume we have 30 Person instances in the database. You can now trigger a reques
 ----
 
 You see that the assembler produced the correct URI and also picked up the default configuration to resolve the parameters into a `Pageable` for an upcoming request. This means that, if you change that configuration, the links automatically adhere to the change. By default, the assembler points to the controller method it was invoked in, but that can be customized by handing in a custom `Link` to be used as base to build the pagination links, which overloads the `PagedResourcesAssembler.toResource(…)` method.
+
+[[core.repository-populators]]
+=== Repository Populators
+If you work with the Spring JDBC module, you are probably familiar with the support to populate a `DataSource` with SQL scripts. A similar abstraction is available on the repositories level, although it does not use SQL as the data definition language because it must be store-independent. Thus, the populators support XML (through Spring's OXM abstraction) and JSON (through Jackson) to define data with which to populate the repositories.
+
+Assume you have a file `data.json` with the following content:
+
+.Data defined as JSON
+====
+[source, json]
+----
+include::../examples/docs/src/test/resources/data.json[]
+----
+====
+
+The `_class` keys point to your domain class, in this case a `MovieEntity`
+
+.Corresponding entity
+====
+[source, java]
+----
+include::../examples/docs/src/test/java/org/neo4j/doc/springframework/data/docs/repositories/populators/MovieEntity.java[tag=populators]
+----
+====
+
+If you don't provide a custom constructor, you need to help the Jackson JSON library a bit by providing a so called mixin, teaching Jackson how to instantiate the object:
+
+.Optional Jackson module helping Jackson with your domain
+====
+[source, java]
+----
+include::../examples/docs/src/test/java/org/neo4j/doc/springframework/data/docs/repositories/populators/MovieModule.java[tag=populators]
+----
+====
+
+And finally, you declare a `FactoryBean<ResourceReaderRepositoryPopulator` in your application's configuration:
+
+.A JSON repository populator based on Jackson
+====
+[source, java]
+----
+include::../examples/docs/src/test/java/org/neo4j/doc/springframework/data/docs/repositories/populators/PopulatorConfig.java[tag=populators]
+----
+<1> It is important that you inject the `ObjectMapper` from the context as this takes care of all registered Jackson Modules
+<2> Here you point to `data.json` resource
+====
+
+The preceding declaration causes the `data.json` file to be read and deserialized by the Jackson `ObjectMapper`.
+
+The type to which the JSON object is unmarshalled is determined by inspecting the `_class` attribute of the JSON document. 
+The infrastructure eventually selects the appropriate repository to handle the object that was deserialized.
+
+To instead use XML to define the data the repositories should be populated with, you need to use a `UnmarshallerRepositoryPopulatorFactoryBean` and a JAXB2 marshaller.  
