@@ -58,6 +58,12 @@ public class Pet {
 	@Relationship("Has")
 	private List<ThingWithAssignedId> things;
 
+	@Relationship("Owners")
+	private List<PersonWithRelationshipWithProperties> owners;
+
+	@Relationship("HasAThing")
+	private ThingWithGeneratedId thing;
+
 	public Set<Hobby> getHobbies() {
 		return hobbies;
 	}
@@ -76,6 +82,10 @@ public class Pet {
 
 	public Long getId() {
 		return id;
+	}
+
+	public void setOwners(List<PersonWithRelationshipWithProperties> owners) {
+		this.owners = owners;
 	}
 }
 

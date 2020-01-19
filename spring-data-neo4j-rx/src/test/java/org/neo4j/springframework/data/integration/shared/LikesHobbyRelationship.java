@@ -44,10 +44,9 @@ public class LikesHobbyRelationship {
 	// spatial type
 	private CartesianPoint2d point;
 
-
 	public LikesHobbyRelationship(Integer since) {
-	 	this.since = since;
-	 }
+		this.since = since;
+	}
 
 	public void setActive(Boolean active) {
 		this.active = active;
@@ -91,5 +90,15 @@ public class LikesHobbyRelationship {
 	 */
 	public enum MyEnum {
 		SOMETHING, SOMETHING_DIFFERENT
+	}
+
+	public static LikesHobbyRelationship of(Integer since, Boolean active, LocalDate localDate, MyEnum myEnum,
+		CartesianPoint2d point) {
+		LikesHobbyRelationship rel = new LikesHobbyRelationship(since);
+		rel.setActive(active);
+		rel.setLocalDate(localDate);
+		rel.setMyEnum(myEnum);
+		rel.setPoint(point);
+		return rel;
 	}
 }

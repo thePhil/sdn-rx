@@ -18,20 +18,37 @@
  */
 package org.neo4j.springframework.data.integration.shared;
 
+import java.util.List;
 import java.util.Objects;
+
+import lombok.Getter;
+import lombok.Setter;
 
 import org.neo4j.springframework.data.core.schema.GeneratedValue;
 import org.neo4j.springframework.data.core.schema.Id;
 import org.neo4j.springframework.data.core.schema.Node;
+import org.neo4j.springframework.data.core.schema.Relationship;
 
 /**
  * @author Gerrit Meier
  */
 @Node
+@Setter
+@Getter
 public class Hobby {
 	@Id @GeneratedValue private Long id;
-
 	private String name;
+
+	/**
+	 * Test if reverse relationship to same node get persisted correctly.
+	 */
+	@Relationship(type = "SimilarTo", inverse = "similarHobbyOf")
+	private Hobby similarHobby;
+	@Relationship(type = "SimilarTo", direction = Relationship.Direction.INCOMING)
+	private Hobby similarHobbyOf;
+
+	@Relationship("EmptyRelationship")
+	private List<Hobby> noHobbies;
 
 	public Long getId() {
 		return id;
@@ -47,6 +64,13 @@ public class Hobby {
 
 	public void setName(String name) {
 		this.name = name;
+	}
+
+	public Hobby withName(String name2) {
+		Hobby h = new Hobby();
+		h.id = this.id;
+		h.name = name2;
+		return h;
 	}
 
 	@Override public String toString() {

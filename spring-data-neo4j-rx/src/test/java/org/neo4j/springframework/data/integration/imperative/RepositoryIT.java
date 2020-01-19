@@ -27,6 +27,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -529,6 +530,48 @@ class RepositoryIT {
 					assertThat(relationship.get("myEnum").asString().contains("SOMETHING")).isTrue();
 				}
 			);
+		}
+	}
+
+	private static final Hobby HOBBY_MUSIC = new Hobby().withName("Music");
+	private static final Hobby HOBBY_OTHER = new Hobby().withName("Other Hobby");
+
+	private static final LikesHobbyRelationship LIKE_REL_1 = LikesHobbyRelationship.of(1995, true, TEST_PERSON1_BORN_ON,
+		LikesHobbyRelationship.MyEnum.SOMETHING, new CartesianPoint2d(2.0, 3.0));
+
+	private static final LikesHobbyRelationship LIKE_REL_2 = LikesHobbyRelationship
+		.of(1996, false, TEST_PERSON2_BORN_ON,
+			LikesHobbyRelationship.MyEnum.SOMETHING_DIFFERENT, new CartesianPoint2d(9.0, 3.0));
+
+	@Test
+	void saveEntityGraphWithSelfInverseRelationshipDefined() {
+
+		Hobby similarHobby = new Hobby().withName("SimilarMusic");
+		HOBBY_MUSIC.setSimilarHobby(similarHobby);
+
+		// given
+		Map<Hobby, LikesHobbyRelationship> hobbies = new HashMap<>();
+		hobbies.put(HOBBY_MUSIC, LIKE_REL_1);
+		hobbies.put(HOBBY_OTHER, LIKE_REL_2);
+		PersonWithRelationshipWithProperties person5 = new PersonWithRelationshipWithProperties(TEST_PERSON1_NAME);
+		person5.setHobbies(hobbies);
+
+		List<PersonWithRelationshipWithProperties> ownersList = new ArrayList<>();
+		ownersList.add(person5);
+
+		Pet pet = new Pet("Mausi");
+		pet.setOwners(ownersList);
+
+		// when
+		Pet petWithDetph2 = petRepository.save(pet);
+
+		try(Session session = driver.session()){
+			Record record = session.run("MATCH (h:Hobby {name:'Music'}) -[r:SimilarTo]->(sh:Hobby {name:'SimilarMusic'})"
+				+ " RETURN r").single();
+
+			assertThat(record.keys()).isNotEmpty();
+			assertThat(record.containsKey("r")).isTrue();
+			assertThat(record.get("r").asRelationship().type()).isEqualToIgnoringCase("SimilarTo");
 		}
 	}
 
