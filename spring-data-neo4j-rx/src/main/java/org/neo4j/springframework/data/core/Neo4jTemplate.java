@@ -182,6 +182,31 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 		return saveImpl(instance, getDatabaseName());
 	}
 
+	// start to walk the graph from here
+	/*
+	 * The idea would be re-create this functionally with the following strategy:
+	 * 1. Find the underlying structure of the graph as it will be persisted into the db
+	 * 	  Usually the domain object graph has cycles in itself, a common usecase is where the domain object graph
+	 * 	  allows to reach both sides of a directed relationship, from each other.
+	 * 	  But the graph described by the annotations, only describes a unidirectional relationship.
+	 *
+	 * 	  This means, there exist 2 different representations of the graph to be persisted.
+	 * 		a) The one described by the domain object graph (which should be persisted)
+	 * 		b) The graph as it should be persisted into the database (db-graph)
+	 *
+	 * 	  Essentially the idea is to first extract the graph structure of the db-graph. Here we also need to ensure
+	 * 	  that we can handle cases, where the db-graph is NOT an acyclic-directed-graph. So while extracting the db-
+	 * 	  graph from the domain-object-graph, the cycle detection must work efficiently to ensure that we can also
+	 * 	  persist db-graphs, where cycles exist.
+	 * 		a) We need to detect all cycles which are caused by "unreal" bi-directional object graph relationships
+	 * 		b) Eliminitation of these "unreal" bi-direction relationships
+	 * 		c) Walking of the graph to ensure cycle detection (by maintaining a visited list) and for each node
+	 * 			already
+	 * 			Create or update node
+	 * 			prepare query.
+	 * 2. Create all the nodes relevant for the graph
+	 * 3. Create all the relationships for the graph
+	 */
 	private <T> T saveImpl(T instance, @Nullable String inDatabase) {
 
 		Neo4jPersistentEntity entityMetaData = neo4jMappingContext.getPersistentEntity(instance.getClass());
