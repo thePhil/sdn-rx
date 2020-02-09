@@ -183,20 +183,32 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 	}
 
 	// start to walk the graph from here
-	/*
+	/**
 	 * The idea would be re-create this functionally with the following strategy:
 	 * 1. Find the underlying structure of the graph as it will be persisted into the db
 	 * 	  Usually the domain object graph has cycles in itself, a common usecase is where the domain object graph
 	 * 	  allows to reach both sides of a directed relationship, from each other.
-	 * 	  But the graph described by the annotations, only describes a unidirectional relationship.
+	 * 	  But the graph described by the annotations, only describes a unidirectional db-relationship.
 	 *
 	 * 	  This means, there exist 2 different representations of the graph to be persisted.
-	 * 		a) The one described by the domain object graph (which should be persisted)
+	 * 		a) The one described by the domain object graph (which should be persisted) (object-graph)
 	 * 		b) The graph as it should be persisted into the database (db-graph)
+	 *
+	 * 	  So, we need to carve out the db-graph. The db-graph that can be defined currently, can only be a Directed Graph.
+	 * 		(reason being, that the @org.neo4j.springframework.data.core.schema.Relationship has only unidirectional descriptors).
+	 * 	  When traversing the object-graph, the inclusion of the "inverse" property on the annotation
+	 * 	  {@link org.neo4j.springframework.data.core.schema.Relationship} leads to an object-graph with bi-directional
+	 * 	  edges.
+	 *
+	 * 	  If no {@link org.neo4j.springframework.data.core.schema.Relationship} has "inverse" not set ==> object-graph = db-graph.
+	 *
+	 * 	  If "inverse" is set ==> filtering of inverse required
+	 *
+	 *
 	 *
 	 * 	  Essentially the idea is to first extract the graph structure of the db-graph. Here we also need to ensure
 	 * 	  that we can handle cases, where the db-graph is NOT an acyclic-directed-graph. So while extracting the db-
-	 * 	  graph from the domain-object-graph, the cycle detection must work efficiently to ensure that we can also
+	 * 	  graph from the object-graph, the cycle detection must work efficiently to ensure that we can also
 	 * 	  persist db-graphs, where cycles exist.
 	 * 		a) We need to detect all cycles which are caused by "unreal" bi-directional object graph relationships
 	 * 		b) Eliminitation of these "unreal" bi-direction relationships
@@ -207,6 +219,7 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 	 * 2. Create all the nodes relevant for the graph
 	 * 3. Create all the relationships for the graph
 	 */
+	// TODO: evaluate implementation of Strategy pattern
 	private <T> T saveImpl(T instance, @Nullable String inDatabase) {
 
 		Neo4jPersistentEntity entityMetaData = neo4jMappingContext.getPersistentEntity(instance.getClass());
@@ -357,11 +370,13 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 		processNestedAssociations(neo4jPersistentEntity, parentObject, inDatabase, new HashSet<>());
 	}
 
+	// TODO: evaluate implementation of Strategy Pattern
 	private void processNestedAssociations(Neo4jPersistentEntity<?> neo4jPersistentEntity, Object parentObject,
 		@Nullable String inDatabase, Set<RelationshipDescription> processedRelationshipDescriptions) {
 
 		PersistentPropertyAccessor<?> propertyAccessor = neo4jPersistentEntity.getPropertyAccessor(parentObject);
 
+		// for each loop
 		neo4jPersistentEntity.doWithAssociations((AssociationHandler<Neo4jPersistentProperty>) handler -> {
 
 			// create context to bundle parameters
@@ -432,6 +447,8 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 					targetPropertyAccessor
 						.setProperty(targetNodeDescription.getRequiredIdProperty(), relatedInternalId);
 				}
+				// next recursion level
+				// TODO: explore if visiting associations with "inverse" set can be avoided
 				processNestedAssociations(targetNodeDescription, valueToBeSaved, inDatabase, processedRelationshipDescriptions);
 			}
 		});

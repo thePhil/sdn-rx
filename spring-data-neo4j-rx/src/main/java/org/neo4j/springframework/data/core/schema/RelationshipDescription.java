@@ -88,6 +88,8 @@ public interface RelationshipDescription {
 	 *
 	 * @return The type of the relationship property class for relationship with properties, otherwise {@literal null}
 	 */
+
+	// TODO: Remove nullable and replace by default value, also interface can be simplified by removing next function
 	@Nullable
 	Class<?> getRelationshipPropertiesClass();
 
@@ -124,6 +126,9 @@ public interface RelationshipDescription {
 	 *
 	 * @return logically same relationship definition in the target entity
 	 */
+
+	// TODO: Remove nullable replace by default value: NO_OBSERVE_RELATIONSHIP
+	// TODO: Simplify Interface by removing folloginw function
 	RelationshipDescription getRelationshipObverse();
 
 	/**
