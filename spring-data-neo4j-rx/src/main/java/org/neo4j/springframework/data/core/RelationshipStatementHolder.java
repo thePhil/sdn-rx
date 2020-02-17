@@ -64,7 +64,7 @@ final class RelationshipStatementHolder {
 	static RelationshipStatementHolder createStatementForRelationShipWithProperties(
 		Neo4jMappingContext neo4jMappingContext,
 		Neo4jPersistentEntity<?> neo4jPersistentEntity,
-		NestedRelationshipContext relationshipContext,
+		InverseRelationshipNodeContext relationshipContext,
 		Long relatedInternalId,
 		Map.Entry relatedValue) {
 
@@ -82,7 +82,7 @@ final class RelationshipStatementHolder {
 
 	static RelationshipStatementHolder createStatementForRelationshipWithoutProperties(
 		Neo4jPersistentEntity<?> neo4jPersistentEntity,
-		NestedRelationshipContext relationshipContext,
+		InverseRelationshipNodeContext relationshipContext,
 		Long relatedInternalId,
 		Object relatedValue) {
 

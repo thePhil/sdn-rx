@@ -20,6 +20,7 @@ package org.neo4j.springframework.data.integration.shared;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jetbrains.annotations.NotNull;
 import org.neo4j.driver.Driver;
 import org.neo4j.springframework.data.core.schema.IdGenerator;
 import org.springframework.util.StringUtils;
@@ -44,7 +45,7 @@ public class TestSequenceGenerator implements IdGenerator<String> {
 	}
 
 	@Override
-	public String generateId(String primaryLabel, Object entity) {
+	public String generateId(@NotNull String primaryLabel, @NotNull Object entity) {
 		return StringUtils.uncapitalize(primaryLabel) + "-" + sequence.incrementAndGet();
 	}
 }

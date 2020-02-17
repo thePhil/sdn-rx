@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
 import org.neo4j.springframework.data.core.schema.GeneratedValue;
 import org.neo4j.springframework.data.core.schema.GraphPropertyDescription;
@@ -155,7 +156,7 @@ public class Neo4jMappingContextTest {
 	static class DummyIdGenerator implements IdGenerator<Void> {
 
 		@Override
-		public Void generateId(String primaryLabel, Object entity) {
+		public Void generateId(@NotNull String primaryLabel, @NotNull Object entity) {
 			return null;
 		}
 	}

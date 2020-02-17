@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import org.assertj.core.api.Assertions;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -107,7 +108,7 @@ class IdPopulatorTest {
 	static class DummyIdGenerator implements IdGenerator<String> {
 
 		@Override
-		public String generateId(String primaryLabel, Object entity) {
+		public String generateId(@NotNull String primaryLabel, @NotNull Object entity) {
 			return "Not necessary unique.";
 		}
 	}

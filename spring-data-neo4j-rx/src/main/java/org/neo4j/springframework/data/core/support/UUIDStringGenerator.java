@@ -21,6 +21,7 @@ package org.neo4j.springframework.data.core.support;
 import java.util.UUID;
 
 import org.apiguardian.api.API;
+import org.jetbrains.annotations.NotNull;
 import org.neo4j.springframework.data.core.schema.IdGenerator;
 
 /**

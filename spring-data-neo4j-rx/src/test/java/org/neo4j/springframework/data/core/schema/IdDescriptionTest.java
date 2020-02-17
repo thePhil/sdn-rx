@@ -20,6 +20,7 @@ package org.neo4j.springframework.data.core.schema;
 
 import static org.assertj.core.api.Assertions.*;
 
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -62,7 +63,7 @@ class IdDescriptionTest {
 	private static class DummyIdGenerator implements IdGenerator<Void> {
 
 		@Override
-		public Void generateId(String primaryLabel, Object entity) {
+		public Void generateId(@NotNull String primaryLabel, @NotNull Object entity) {
 			return null;
 		}
 	}

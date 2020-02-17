@@ -61,6 +61,7 @@ import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.data.mapping.AssociationHandler;
 import org.springframework.data.mapping.PersistentPropertyAccessor;
 import org.springframework.data.mapping.callback.EntityCallbacks;
+import org.springframework.lang.NonNull;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
@@ -92,7 +93,8 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 		this(neo4jClient, new Neo4jMappingContext(), DatabaseSelectionProvider.getDefaultSelectionProvider());
 	}
 
-	public Neo4jTemplate(Neo4jClient neo4jClient, Neo4jMappingContext neo4jMappingContext, DatabaseSelectionProvider databaseSelectionProvider) {
+	public Neo4jTemplate(Neo4jClient neo4jClient, Neo4jMappingContext neo4jMappingContext,
+		DatabaseSelectionProvider databaseSelectionProvider) {
 
 		Assert.notNull(neo4jClient, "The Neo4jClient is required");
 		Assert.notNull(neo4jMappingContext, "The Neo4jMappingContext is required");
@@ -183,65 +185,84 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 	}
 
 	// start to walk the graph from here
+
 	/**
 	 * The idea would be re-create this functionally with the following strategy:
 	 * 1. Find the underlying structure of the graph as it will be persisted into the db
-	 * 	  Usually the domain object graph has cycles in itself, a common usecase is where the domain object graph
-	 * 	  allows to reach both sides of a directed relationship, from each other.
-	 * 	  But the graph described by the annotations, only describes a unidirectional db-relationship.
-	 *
-	 * 	  This means, there exist 2 different representations of the graph to be persisted.
-	 * 		a) The one described by the domain object graph (which should be persisted) (object-graph)
-	 * 		b) The graph as it should be persisted into the database (db-graph)
-	 *
-	 * 	  So, we need to carve out the db-graph. The db-graph that can be defined currently, can only be a Directed Graph.
-	 * 		(reason being, that the @org.neo4j.springframework.data.core.schema.Relationship has only unidirectional descriptors).
-	 * 	  When traversing the object-graph, the inclusion of the "inverse" property on the annotation
-	 * 	  {@link org.neo4j.springframework.data.core.schema.Relationship} leads to an object-graph with bi-directional
-	 * 	  edges.
-	 *
-	 * 	  If no {@link org.neo4j.springframework.data.core.schema.Relationship} has "inverse" not set ==> object-graph = db-graph.
-	 *
-	 * 	  If "inverse" is set ==> filtering of inverse required
-	 *
-	 *
-	 *
-	 * 	  Essentially the idea is to first extract the graph structure of the db-graph. Here we also need to ensure
-	 * 	  that we can handle cases, where the db-graph is NOT an acyclic-directed-graph. So while extracting the db-
-	 * 	  graph from the object-graph, the cycle detection must work efficiently to ensure that we can also
-	 * 	  persist db-graphs, where cycles exist.
-	 * 		a) We need to detect all cycles which are caused by "unreal" bi-directional object graph relationships
-	 * 		b) Eliminitation of these "unreal" bi-direction relationships
-	 * 		c) Walking of the graph to ensure cycle detection (by maintaining a visited list) and for each node
-	 * 			already
-	 * 			Create or update node
-	 * 			prepare query.
+	 * Usually the domain object graph has cycles in itself, a common usecase is where the domain object graph
+	 * allows to reach both sides of a directed relationship, from each other.
+	 * But the graph described by the annotations, only describes a unidirectional db-relationship.
+	 * This means, there exist 2 different representations of the graph to be persisted.
+	 * a) The one described by the domain object graph (which should be persisted) (object-graph)
+	 * b) The graph as it should be persisted into the database (db-graph)
+	 * So, we need to carve out the db-graph. The db-graph that can be defined currently, can only be a Directed Graph.
+	 * (reason being, that the {@link @org.neo4j.springframework.data.core.schema.Relationship} has only unidirectional descriptors).
+	 * When traversing the object-graph, the inclusion of the "inverse" property on the annotation
+	 * {@link org.neo4j.springframework.data.core.schema.Relationship} leads to an object-graph with bi-directional
+	 * edges.
+	 * If no {@link org.neo4j.springframework.data.core.schema.Relationship} has "inverse" not set ==> object-graph = db-graph.
+	 * Essentially the idea is to first extract the graph structure of the db-graph. Here we also need to ensure
+	 * that we can handle cases, where the db-graph is NOT an acyclic-directed-graph. So while extracting the db-
+	 * graph from the object-graph, the cycle detection must work efficiently to ensure that we can also
+	 * persist db-graphs, where cycles exist.
+	 * a) We need to detect all cycles which are caused by "unreal" bi-directional object graph relationships
+	 * b) Eliminitation of these "unreal" bi-direction relationships
+	 * c) Walking of the graph to ensure cycle detection (by maintaining a visited list) and for each node
+	 * already
+	 * Create or update node
+	 * prepare query.
 	 * 2. Create all the nodes relevant for the graph
 	 * 3. Create all the relationships for the graph
 	 */
 	// TODO: evaluate implementation of Strategy pattern
-	private <T> T saveImpl(T instance, @Nullable String inDatabase) {
+	private <T> T saveImpl(@NonNull T instance, @Nullable String inDatabase) {
+		Assert.notNull(instance, "cannot persist null element");
+		PersistentRootNodeContext rootNodeContext = new PersistentRootNodeContext(inDatabase,
+			cypherGenerator,
+			neo4jMappingContext,
+			neo4jClient, eventSupport);
 
-		Neo4jPersistentEntity entityMetaData = neo4jMappingContext.getPersistentEntity(instance.getClass());
+		// Persist root node
+		// TODO: duplicated code check at saveRelatedNode() refactor after cleanup of algorithm below
+		Neo4jPersistentEntity<T> entityMetaData = (Neo4jPersistentEntity<T>) neo4jMappingContext
+			.getPersistentEntity(instance.getClass());
 		T entityToBeSaved = eventSupport.maybeCallBeforeBind(instance);
 		Long internalId = neo4jClient
 			.query(() -> renderer.render(cypherGenerator.prepareSaveOf(entityMetaData)))
 			.in(inDatabase)
-			.bind((T) entityToBeSaved)
+			.bind(entityToBeSaved)
 			.with(neo4jMappingContext.getRequiredBinderFunctionFor((Class<T>) entityToBeSaved.getClass()))
 			.fetchAs(Long.class).one().get();
 
-		PersistentPropertyAccessor<T> propertyAccessor = entityMetaData.getPropertyAccessor(entityToBeSaved);
+		AssociationParentEntityContext<T> parentEntityContext = new AssociationParentEntityContext<>(entityToBeSaved,
+			entityMetaData);
+		ImperativeAssociationHandler<T> associationHandler = new ImperativeAssociationHandler<>(rootNodeContext,
+			parentEntityContext);
 
-		if (!entityMetaData.isUsingInternalIds()) {
-			processAssociations(entityMetaData, entityToBeSaved, inDatabase);
-			return entityToBeSaved;
-		} else {
+		//		if (!entityMetaData.isUsingInternalIds()) {
+		//			processAssociations(entityMetaData, entityToBeSaved, inDatabase);
+		//			return entityToBeSaved;
+		//		} else {
+		//			PersistentPropertyAccessor<T> propertyAccessor = entityMetaData.getPropertyAccessor(entityToBeSaved);
+		//			propertyAccessor.setProperty(entityMetaData.getRequiredIdProperty(), internalId);
+		//
+		//			processAssociations(entityMetaData, entityToBeSaved, inDatabase);
+		//			return propertyAccessor.getBean();
+		//		}
+
+		// prepare persistence
+		if (entityMetaData.isUsingInternalIds()) {
+			PersistentPropertyAccessor<T> propertyAccessor = entityMetaData.getPropertyAccessor(entityToBeSaved);
 			propertyAccessor.setProperty(entityMetaData.getRequiredIdProperty(), internalId);
-			processAssociations(entityMetaData, entityToBeSaved, inDatabase);
-
-			return propertyAccessor.getBean();
 		}
+
+		// start persistence
+		parentEntityContext.getParentPersistentEntity().doWithAssociations(associationHandler);
+
+		// return results
+		return entityMetaData.isUsingInternalIds() ?
+			parentEntityContext.getParentPropertyAccessor().getBean() :
+			parentEntityContext.getParentObject();
 	}
 
 	@Override
@@ -262,7 +283,7 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 		}
 
 		Class<T> domainClass = (Class<T>) CollectionUtils.findCommonElementType(entities);
-		Neo4jPersistentEntity entityMetaData = neo4jMappingContext.getPersistentEntity(domainClass);
+		Neo4jPersistentEntity<T> entityMetaData = (Neo4jPersistentEntity<T>) neo4jMappingContext.getPersistentEntity(domainClass);
 		if (entityMetaData.isUsingInternalIds()) {
 			log.debug("Saving entities using single statements.");
 
@@ -286,8 +307,18 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 			.run();
 
 		// Save related
+		PersistentRootNodeContext rootNodeContext = new PersistentRootNodeContext(databaseName,
+			cypherGenerator,
+			neo4jMappingContext,
+			neo4jClient, eventSupport);
 		entitiesToBeSaved.forEach(entityToBeSaved -> {
-			processAssociations(entityMetaData, entityToBeSaved, databaseName);
+			AssociationParentEntityContext<T> parentEntityContext = new AssociationParentEntityContext<>(entityToBeSaved,
+				entityMetaData);
+			ImperativeAssociationHandler<T> associationHandler = new ImperativeAssociationHandler<>(rootNodeContext,
+				parentEntityContext);
+
+			parentEntityContext.getParentPersistentEntity().doWithAssociations(associationHandler);
+//			processAssociations(entityMetaData, entityToBeSaved, databaseName);
 		});
 
 		SummaryCounters counters = resultSummary.counters();
@@ -365,26 +396,38 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 		return toExecutableQuery(preparedQuery);
 	}
 
-	private void processAssociations(Neo4jPersistentEntity<?> neo4jPersistentEntity, Object parentObject,
+	private void processAssociations(AssociationParentEntityContext<?> parentEntityContext,
+		Neo4jPersistentEntity<?> parentPersistentEntity, Object parentObject,
 		@Nullable String inDatabase) {
-		processNestedAssociations(neo4jPersistentEntity, parentObject, inDatabase, new HashSet<>());
+		PersistentRootNodeContext rootNodeContext = new PersistentRootNodeContext(inDatabase,
+			cypherGenerator,
+			neo4jMappingContext,
+			neo4jClient, eventSupport);
+		ImperativeAssociationHandler associationHandler = new ImperativeAssociationHandler(rootNodeContext, parentEntityContext);
+//		parentEntityContext.getParentPersistentEntity().doWithAssociations(associationHandler);
+
+		processNestedAssociations(parentEntityContext.getParentPersistentEntity(), parentEntityContext.getParentObject() , inDatabase, new HashSet<>());
+//		processNestedAssociations(parentPersistentEntity, parentObject, inDatabase, new HashSet<>());
 	}
 
 	// TODO: evaluate implementation of Strategy Pattern
-	private void processNestedAssociations(Neo4jPersistentEntity<?> neo4jPersistentEntity, Object parentObject,
+	private void processNestedAssociations(Neo4jPersistentEntity<?> parentPersistentEntity, Object parentObject,
 		@Nullable String inDatabase, Set<RelationshipDescription> processedRelationshipDescriptions) {
 
-		PersistentPropertyAccessor<?> propertyAccessor = neo4jPersistentEntity.getPropertyAccessor(parentObject);
+		PersistentPropertyAccessor<?> parentPropertyAccessor = parentPersistentEntity.getPropertyAccessor(parentObject);
 
 		// for each loop
-		neo4jPersistentEntity.doWithAssociations((AssociationHandler<Neo4jPersistentProperty>) handler -> {
+		parentPersistentEntity.doWithAssociations((AssociationHandler<Neo4jPersistentProperty>) handler -> {
+
+			// I want to call this step (until all props are visited) the currentNode persitance
 
 			// create context to bundle parameters
-			NestedRelationshipContext relationshipContext = NestedRelationshipContext
-				.of(handler, propertyAccessor, neo4jPersistentEntity);
+			InverseRelationshipNodeContext relationshipContext = InverseRelationshipNodeContext
+				.of(handler, parentPropertyAccessor, parentPersistentEntity);
 
 			// break recursive procession and deletion of previously created relationships
-			RelationshipDescription relationshipObverse = relationshipContext.getRelationship().getRelationshipObverse();
+			RelationshipDescription relationshipObverse = relationshipContext.getRelationship()
+				.getRelationshipObverse();
 			if (hasProcessed(processedRelationshipDescriptions, relationshipObverse)) {
 				return;
 			}
@@ -392,12 +435,13 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 			Neo4jPersistentEntity<?> targetNodeDescription = neo4jMappingContext
 				.getPersistentEntity(relationshipContext.getAssociationTargetType());
 
-			Object fromId = propertyAccessor.getProperty(neo4jPersistentEntity.getRequiredIdProperty());
+			Object fromId = parentPropertyAccessor.getProperty(parentPersistentEntity.getRequiredIdProperty());
 			// remove all relationships before creating all new if the entity is not new
 			// this avoids the usage of cache but might have significant impact on overall performance
-			if (!neo4jPersistentEntity.isNew(parentObject)) {
-				Statement relationshipRemoveQuery = cypherGenerator.createRelationshipRemoveQuery(neo4jPersistentEntity,
-					relationshipContext.getRelationship(), targetNodeDescription.getPrimaryLabel());
+			if (!parentPersistentEntity.isNew(parentObject)) {
+				Statement relationshipRemoveQuery = cypherGenerator
+					.createRelationshipRemoveQuery(parentPersistentEntity,
+						relationshipContext.getRelationship(), targetNodeDescription.getPrimaryLabel());
 
 				neo4jClient.query(renderer.render(relationshipRemoveQuery))
 					.in(inDatabase)
@@ -411,6 +455,7 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 
 			processedRelationshipDescriptions.add(relationshipContext.getRelationship());
 
+			// from here onwards we deal with the next "recursion step"
 			for (Object relatedValue : Relationships
 				.unifyRelationshipValue(relationshipContext.getInverse(), relationshipContext.getValue())) {
 
@@ -425,14 +470,14 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 				// handle creation of relationship depending on properties on relationship or not
 				RelationshipStatementHolder statementHolder = relationshipContext.hasRelationshipWithProperties()
 					? createStatementForRelationShipWithProperties(neo4jMappingContext,
-						neo4jPersistentEntity,
-						relationshipContext,
-						relatedInternalId,
-						(Map.Entry) relatedValue)
-					: createStatementForRelationshipWithoutProperties(neo4jPersistentEntity,
-						relationshipContext,
-						relatedInternalId,
-						relatedValue);
+					parentPersistentEntity,
+					relationshipContext,
+					relatedInternalId,
+					(Map.Entry) relatedValue)
+					: createStatementForRelationshipWithoutProperties(parentPersistentEntity,
+					relationshipContext,
+					relatedInternalId,
+					relatedValue);
 
 				neo4jClient.query(renderer.render(statementHolder.getRelationshipCreationQuery()))
 					.in(inDatabase)
@@ -449,7 +494,8 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 				}
 				// next recursion level
 				// TODO: explore if visiting associations with "inverse" set can be avoided
-				processNestedAssociations(targetNodeDescription, valueToBeSaved, inDatabase, processedRelationshipDescriptions);
+				processNestedAssociations(targetNodeDescription, valueToBeSaved, inDatabase,
+					processedRelationshipDescriptions);
 			}
 		});
 	}
@@ -463,7 +509,8 @@ public final class Neo4jTemplate implements Neo4jOperations, BeanFactoryAware {
 		return false;
 	}
 
-	private <Y> Long saveRelatedNode(Object entity, Class<Y> entityType, NodeDescription targetNodeDescription, @Nullable String inDatabase) {
+	private <Y> Long saveRelatedNode(Object entity, Class<Y> entityType, NodeDescription targetNodeDescription,
+		@Nullable String inDatabase) {
 		return neo4jClient.query(() -> renderer.render(cypherGenerator.prepareSaveOf(targetNodeDescription)))
 			.in(inDatabase)
 			.bind((Y) entity).with(neo4jMappingContext.getRequiredBinderFunctionFor(entityType))

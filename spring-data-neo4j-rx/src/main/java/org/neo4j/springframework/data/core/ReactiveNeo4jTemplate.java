@@ -338,7 +338,7 @@ public final class ReactiveNeo4jTemplate implements ReactiveNeo4jOperations, Bea
 			neo4jPersistentEntity.doWithAssociations((AssociationHandler<Neo4jPersistentProperty>) handler -> {
 
 				// create context to bundle parameters
-				NestedRelationshipContext relationshipContext = NestedRelationshipContext
+				InverseRelationshipNodeContext relationshipContext = InverseRelationshipNodeContext
 					.of(handler, propertyAccessor, neo4jPersistentEntity);
 
 				// break recursive procession and deletion of previously created relationships
